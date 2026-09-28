@@ -77,6 +77,15 @@
       pointer-events: none;
     }
 
+    #detectionCanvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      pointer-events: none;
+    }
+
     #hudOverlay {
       position: absolute;
       inset: 0;
@@ -128,6 +137,66 @@
       bottom: 2.6vh;
       width: min(34vw, 420px);
       height: min(18vh, 170px);
+    }
+
+    #detectionPanel {
+      position: absolute;
+      right: 2.6vw;
+      bottom: 2.4vh;
+      width: min(28vw, 380px);
+      height: min(20vh, 200px);
+      border: 1px solid rgba(255, 114, 210, 0.8);
+      background: rgba(120, 28, 25, 0.35);
+      overflow: hidden;
+      box-shadow: inset 0 0 18px rgba(255, 114, 210, 0.12), 0 0 12px rgba(255, 114, 210, 0.25);
+      z-index: 5;
+    }
+
+    #detectionHeader {
+      height: 24px;
+      border-bottom: 1px solid rgba(255, 114, 210, 0.7);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 10px;
+      font-size: 0.56rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #ff72d2;
+    }
+
+    #detectionList {
+      padding: 8px 10px;
+      height: calc(100% - 24px);
+      overflow-y: auto;
+      font-size: 0.62rem;
+      line-height: 1.6;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #ffb2b7;
+    }
+
+    .detection-item {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 4px 0;
+      border-bottom: 1px solid rgba(255, 114, 210, 0.25);
+    }
+
+    .detection-item.ghost {
+      color: #ff72d2;
+      text-shadow: 0 0 8px rgba(255, 114, 210, 0.6);
+    }
+
+    .detection-item.living {
+      color: #7df9b0;
+      text-shadow: 0 0 8px rgba(125, 249, 176, 0.6);
+    }
+
+    .detection-confidence {
+      color: var(--amber);
+      font-weight: 600;
     }
 
     #mainCrosshair {
@@ -467,6 +536,7 @@
   </div>
 
   <canvas id="filterCanvas"></canvas>
+  <canvas id="detectionCanvas"></canvas>
   <canvas id="hudCanvas"></canvas>
 
   <div id="hudOverlay">
@@ -509,6 +579,14 @@
       </div>
       <div id="terminalLog"></div>
     </div>
+
+    <div id="detectionPanel">
+      <div id="detectionHeader">
+        <span>Paranormal Detection</span>
+        <span id="detectionCount">0/0</span>
+      </div>
+      <div id="detectionList"></div>
+    </div>
   </div>
 
   <button id="abortBtn" class="abort-btn" type="button">Abort [ESC]</button>
@@ -521,7 +599,7 @@
       </div>
 
       <h1 class="boot-title">Initialize Night Vision Stream</h1>
-      <p class="boot-subtitle">Permission required for live paranormal reconnaissance feed.</p>
+      <p class="boot-subtitle">Permission required for live paranormal reconnaissance feed with entity detection.</p>
 
       <div class="boot-actions">
         <button id="startBtn" class="primary-btn" type="button">Initialize Night Vision Stream</button>
@@ -539,10 +617,15 @@
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+
   <script>
     const video = document.getElementById('video');
     const filterCanvas = document.getElementById('filterCanvas');
     const filterCtx = filterCanvas.getContext('2d', { willReadFrequently: true });
+    const detectionCanvas = document.getElementById('detectionCanvas');
+    const detectionCtx = detectionCanvas.getContext('2d', { alpha: true });
     const hudCanvas = document.getElementById('hudCanvas');
     const hudCtx = hudCanvas.getContext('2d', { alpha: true });
 
@@ -551,11 +634,15 @@
     const abortBtn = document.getElementById('abortBtn');
     const bootAbortBtn = document.getElementById('bootAbortBtn');
     const terminalLog = document.getElementById('terminalLog');
+    const detectionList = document.getElementById('detectionList');
+    const detectionCount = document.getElementById('detectionCount');
 
     let stream = null;
     let activeMode = '1';
     const logMessages = [];
     let requestAnimationFrameLoopStarted = false;
+    let cocoModel = null;
+    let detections = [];
 
     const modeNames = {
       '1': 'PHOSPHOR GAIN',
@@ -570,9 +657,91 @@
       '0': 'FULL ROOM SCAN'
     };
 
+    const entityClassification = {
+      person: 'living',
+      cat: 'living',
+      dog: 'living',
+      bird: 'living',
+      horse: 'living',
+      sheep: 'living',
+      cow: 'living',
+      elephant: 'living',
+      bear: 'living',
+      zebra: 'living',
+      giraffe: 'living',
+      backpack: 'object',
+      umbrella: 'object',
+      handbag: 'object',
+      tie: 'object',
+      suitcase: 'object',
+      frisbee: 'object',
+      skis: 'object',
+      snowboard: 'object',
+      sports ball: 'object',
+      kite: 'object',
+      baseball bat: 'object',
+      baseball glove: 'object',
+      skateboard: 'object',
+      surfboard: 'object',
+      tennis racket: 'object',
+      bottle: 'object',
+      wine glass: 'object',
+      cup: 'object',
+      fork: 'object',
+      knife: 'object',
+      spoon: 'object',
+      bowl: 'object',
+      banana: 'object',
+      apple: 'object',
+      sandwich: 'object',
+      orange: 'object',
+      broccoli: 'object',
+      carrot: 'object',
+      hot dog: 'object',
+      pizza: 'object',
+      donut: 'object',
+      cake: 'object',
+      chair: 'object',
+      couch: 'object',
+      potted plant: 'object',
+      bed: 'object',
+      dining table: 'object',
+      toilet: 'object',
+      tv: 'object',
+      laptop: 'object',
+      mouse: 'object',
+      remote: 'object',
+      keyboard: 'object',
+      microwave: 'object',
+      oven: 'object',
+      toaster: 'object',
+      sink: 'object',
+      refrigerator: 'object',
+      book: 'object',
+      clock: 'object',
+      vase: 'object',
+      scissors: 'object',
+      teddy bear: 'object',
+      hair drier: 'object',
+      toothbrush: 'object'
+    };
+
+    async function loadModel() {
+      try {
+        logEntry('LOADING COCO-SSD MODEL...');
+        cocoModel = await cocoSsd.load();
+        logEntry('MODEL LOADED // DETECTION READY');
+      } catch (err) {
+        console.error('Model loading failed:', err);
+        logEntry('MODEL LOAD FAILED');
+      }
+    }
+
     function resizeCanvases() {
       filterCanvas.width = window.innerWidth;
       filterCanvas.height = window.innerHeight;
+      detectionCanvas.width = window.innerWidth;
+      detectionCanvas.height = window.innerHeight;
       hudCanvas.width = window.innerWidth;
       hudCanvas.height = window.innerHeight;
     }
@@ -601,6 +770,78 @@
       document.getElementById('thermalData').textContent = `${thermal}C`;
       document.getElementById('gammaData').textContent = gamma;
       document.getElementById('driftData').textContent = `${drift}°`;
+    }
+
+    async function detectEntities() {
+      if (!cocoModel || video.readyState < 2) return;
+
+      try {
+        const predictions = await cocoModel.estimateObjects(video, 0.4);
+        detections = predictions.map((pred) => {
+          const classification = entityClassification[pred.class] || 'unknown';
+          return {
+            class: pred.class,
+            type: classification === 'living' ? 'living' : classification === 'object' ? 'object' : 'unknown',
+            confidence: (pred.score * 100).toFixed(1),
+            bbox: pred.bbox
+          };
+        });
+
+        const livingCount = detections.filter((d) => d.type === 'living').length;
+        const ghostCount = Math.random() > 0.85 ? Math.floor(Math.random() * 3) : 0;
+
+        detectionCount.textContent = `${livingCount}/${detections.length}`;
+
+        const detectionHTML = detections
+          .sort((a, b) => b.confidence - a.confidence)
+          .slice(0, 6)
+          .map(
+            (det) =>
+              `<div class="detection-item ${det.type}"><span>${det.class.toUpperCase()}</span><span class="detection-confidence">${det.confidence}%</span></div>`
+          )
+          .join('');
+
+        if (ghostCount > 0) {
+          const ghostHTML = Array(ghostCount)
+            .fill()
+            .map(
+              (_, i) =>
+                `<div class="detection-item ghost"><span>GHOST ENTITY ${String.fromCharCode(65 + i)}</span><span class="detection-confidence">${(Math.random() * 35 + 65).toFixed(0)}%</span></div>`
+            )
+            .join('');
+          detectionList.innerHTML = ghostHTML + detectionHTML;
+        } else {
+          detectionList.innerHTML = detectionHTML;
+        }
+      } catch (err) {
+        console.error('Detection error:', err);
+      }
+    }
+
+    function drawDetectionBoxes() {
+      detectionCtx.clearRect(0, 0, detectionCanvas.width, detectionCanvas.height);
+
+      for (const det of detections) {
+        const [x, y, w, h] = det.bbox;
+        const isLiving = det.type === 'living';
+        const color = isLiving ? 'rgba(125, 249, 176, 0.6)' : 'rgba(200, 200, 200, 0.4)';
+        const glowColor = isLiving ? 'rgba(125, 249, 176, 0.8)' : 'rgba(200, 200, 200, 0.6)';
+
+        detectionCtx.strokeStyle = color;
+        detectionCtx.lineWidth = 2;
+        detectionCtx.strokeRect(x, y, w, h);
+
+        detectionCtx.strokeStyle = glowColor;
+        detectionCtx.lineWidth = 1;
+        detectionCtx.strokeRect(x - 2, y - 2, w + 4, h + 4);
+
+        detectionCtx.fillStyle = isLiving ? 'rgba(125, 249, 176, 0.15)' : 'rgba(200, 200, 200, 0.08)';
+        detectionCtx.fillRect(x, y, w, h);
+
+        detectionCtx.fillStyle = isLiving ? 'rgba(125, 249, 176, 0.9)' : 'rgba(200, 200, 200, 0.9)';
+        detectionCtx.font = '12px monospace';
+        detectionCtx.fillText(`${det.class} ${det.confidence}%`, x + 4, y - 4);
+      }
     }
 
     function applyPhosphorGain(data) {
@@ -739,6 +980,7 @@
       hudCtx.restore();
     }
 
+    let detectionFrameCounter = 0;
     function renderFrame() {
       const t = performance.now();
       if (video.readyState >= 2) {
@@ -779,10 +1021,6 @@
 
         filterCtx.putImageData(imageData, 0, 0);
 
-        const videoCanvas = filterCanvas;
-        video.style.opacity = '0';
-        filterCanvas.style.opacity = '1';
-
         const overlayOpacity = activeMode === '0' ? 0.75 : 0.5;
         filterCtx.fillStyle = `rgba(2, 9, 8, ${overlayOpacity})`;
         filterCtx.fillRect(0, 0, w, h);
@@ -822,6 +1060,14 @@
             drawRoomGrid(w, h, t);
             break;
         }
+
+        // Run detection every 5 frames for performance
+        detectionFrameCounter++;
+        if (detectionFrameCounter % 5 === 0) {
+          detectEntities();
+        }
+
+        drawDetectionBoxes();
       }
 
       drawHUDGrid();
@@ -931,6 +1177,7 @@
     resizeCanvases();
     logEntry('BOOT SEQUENCE INITIALIZED');
     logEntry('WAITING FOR USER AUTHORIZATION');
+    loadModel();
   </script>
 </body>
 </html>
