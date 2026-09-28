@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Paranormal Night Vision HUD</title>
+  <style>
+    :root {
+      --bg: #020c09;
+      --panel: rgba(5, 16, 14, 0.72);
+      --line: rgba(95, 255, 179, 0.8);
+      --line-soft: rgba(95, 255, 179, 0.32);
+      --line-blink: rgba(112, 255, 198, 1);
+      --green: #7df9b0;
+      --green-strong: #b9ffd1;
+      --cyan: #7fe4ff;
+      --amber: #ffb75c;
+      --red: #ff5a76;
+      --pink: #ff72d2;
+      --panel-warn: rgba(120, 28, 25, 0.45);
+      --shadow: 0 0 12px rgba(104, 255, 185, 0.8), 0 0 28px rgba(104, 255, 185, 0.4);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      color: var(--green);
+      font-family: "SFMono-Regular", "Consolas", "Menlo", monospace;
+    }
+
+    body {
+      position: relative;
+      background: linear-gradient(rgba(5, 20, 15, 0.92), rgba(2, 11, 10, 0.94)), radial-gradient(circle at center, rgba(25, 76, 52, 0.2), #000 58%);
+    }
+
+    #hudCanvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      background: #02120d;
+      filter: saturate(1.25) contrast(1.18) brightness(0.82);
+    }
+
+    #hudOverlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: linear-gradient(to right, rgba(3, 18, 21, 0.25), transparent 12%, transparent 88%, rgba(3, 18, 21, 0.25));
+    }
+
+    #hudOverlay::before,
+    #hudOverlay::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    #hudOverlay::before {
+      background: repeating-linear-gradient(to bottom, rgba(118, 255, 195, 0.07), rgba(118, 255, 195, 0.07) 1px, transparent 2px, transparent 4px);
+      mix-blend-mode: screen;
+    }
+
+    #hudOverlay::after {
+      background: repeating-linear-gradient(to right, rgba(118, 255, 195, 0.06), rgba(118, 255, 195, 0.06) 1px, transparent 2px, transparent 4px);
+      mix-blend-mode: screen;
+    }
+
+    .hud-frame {
+      position: absolute;
+      border: 1px solid rgba(125, 249, 176, 0.5);
+      box-shadow: inset 0 0 12px rgba(125, 249, 176, 0.18), var(--shadow);
+    }
+
+    .top-left-frame {
+      left: 2.6vw;
+      top: 3.2vh;
+      width: min(26vw, 360px);
+      height: min(18vh, 180px);
+    }
+
+    .top-right-frame {
+      right: 2.6vw;
+      top: 3.2vh;
+      width: min(24vw, 320px);
+      height: min(16vh, 160px);
+    }
+
+    .bottom-left-frame {
+      left: 2.6vw;
+      bottom: 2.6vh;
+      width: min(34vw, 420px);
+      height: min(18vh, 170px);
+    }
+
+    #mainCrosshair {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: min(28vw, 340px);
+      height: min(28vw, 340px);
+      transform: translate(-50%, -50%);
+      border: 1px solid rgba(125, 249, 176, 0.72);
+      border-radius: 50%;
+      box-shadow: inset 0 0 18px rgba(125, 249, 176, 0.2), 0 0 18px rgba(125, 249, 176, 0.18);
+    }
+
+    #mainCrosshair::before,
+    #mainCrosshair::after {
+      content: "";
+      position: absolute;
+      inset: 50% auto auto 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(125, 249, 176, 0.9);
+      box-shadow: var(--shadow);
+    }
+
+    #mainCrosshair::before {
+      width: 2px;
+      height: calc(100% + 24px);
+    }
+
+    #mainCrosshair::after {
+      width: calc(100% + 24px);
+      height: 2px;
+    }
+
+    .crosshair-inner {
+      position: absolute;
+      inset: 50% auto auto 50%;
+      width: 18%;
+      height: 18%;
+      transform: translate(-50%, -50%);
+      border: 1px solid rgba(125, 249, 176, 0.7);
+      border-radius: 50%;
+    }
+
+    .hud-badge {
+      position: absolute;
+      letter-spacing: 0.32em;
+      text-transform: uppercase;
+      font-size: 0.56rem;
+      opacity: 0.8;
+    }
+
+    .hud-badge.top-left-badge {
+      left: 18px;
+      top: 10px;
+    }
+
+    .hud-badge.top-right-badge {
+      right: 18px;
+      top: 10px;
+    }
+
+    .hud-badge.bottom-left-badge {
+      left: 18px;
+      bottom: 10px;
+    }
+
+    .hud-data {
+      position: absolute;
+      inset: 0;
+      padding: 28px 18px 14px 18px;
+      font-size: clamp(0.62rem, 0.55rem + 0.2vw, 0.9rem);
+      line-height: 1.5;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .hud-data strong {
+      color: var(--green-strong);
+      font-weight: 700;
+    }
+
+    .hud-data .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      white-space: nowrap;
+    }
+
+    .hud-data .row span:last-child {
+      color: var(--green-strong);
+    }
+
+    .target-box {
+      position: absolute;
+      width: min(220px, 20vw);
+      min-height: 94px;
+      padding: 10px 12px;
+      border: 1px solid rgba(125, 249, 176, 0.6);
+      background: rgba(1, 15, 11, 0.24);
+      box-shadow: inset 0 0 14px rgba(125, 249, 176, 0.12);
+    }
+
+    #leftTargetBox {
+      left: 2.8vw;
+      top: 4.2vh;
+    }
+
+    #rightTargetBox {
+      right: 2.8vw;
+      top: 4.2vh;
+    }
+
+    #bottomTerminal {
+      position: absolute;
+      left: 2.6vw;
+      bottom: 2.4vh;
+      width: min(36vw, 520px);
+      height: min(17vh, 160px);
+      border: 1px solid rgba(125, 249, 176, 0.6);
+      background: rgba(2, 16, 12, 0.4);
+      overflow: hidden;
+      box-shadow: inset 0 0 18px rgba(125, 249, 176, 0.14);
+    }
+
+    #terminalHeader {
+      height: 24px;
+      border-bottom: 1px solid rgba(125, 249, 176, 0.55);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 10px;
+      font-size: 0.56rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--cyan);
+    }
+
+    .dot-row {
+      display: flex;
+      gap: 6px;
+    }
+
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: rgba(125, 249, 176, 0.8);
+      box-shadow: 0 0 8px rgba(125, 249, 176, 0.9);
+    }
+
+    #terminalLog {
+      padding: 10px 10px 6px 10px;
+      height: calc(100% - 24px);
+      overflow: hidden;
+      font-size: 0.62rem;
+      line-height: 1.5;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #a8ffcc;
+    }
+
+    .log-line {
+      opacity: 0.8;
+      white-space: nowrap;
+      animation: pulseLine 1.2s ease-in-out infinite alternate;
+    }
+
+    @keyframes pulseLine {
+      0% {
+        opacity: 0.62;
+      }
+      100% {
+        opacity: 1;
+      }
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 8px;
+      border: 1px solid rgba(125, 249, 176, 0.8);
+      color: var(--green-strong);
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      font-size: 0.55rem;
+    }
+
+    .signal-bar {
+      margin-top: 8px;
+      height: 4px;
+      width: 100%;
+      position: relative;
+      background: rgba(125, 249, 176, 0.12);
+      overflow: hidden;
+      border: 1px solid rgba(125, 249, 176, 0.35);
+    }
+
+    .signal-bar::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      width: 68%;
+      background: linear-gradient(90deg, rgba(125, 249, 176, 0.1), rgba(125, 249, 176, 0.8), rgba(125, 249, 176, 0.1));
+      box-shadow: 0 0 18px rgba(125, 249, 176, 0.45);
+      animation: scanBar 4s ease-in-out infinite;
+    }
+
+    @keyframes scanBar {
+      0% {
+        transform: translateX(-30%);
+      }
+      50% {
+        transform: translateX(24%);
+      }
+      100% {
+        transform: translateX(65%);
+      }
+    }
+
+    #bootScreen {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(1, 10, 8, 0.76);
+      backdrop-filter: blur(3px);
+      z-index: 10;
+      transition: opacity 0.35s ease;
+    }
+
+    .boot-panel {
+      width: min(760px, 76vw);
+      padding: 32px 28px;
+      border: 1px solid rgba(125, 249, 176, 0.8);
+      background: rgba(5, 18, 15, 0.8);
+      box-shadow: inset 0 0 18px rgba(125, 249, 176, 0.12), 0 0 28px rgba(125, 249, 176, 0.18);
+    }
+
+    .boot-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 18px;
+      letter-spacing: 0.26em;
+      text-transform: uppercase;
+      font-size: 0.7rem;
+      color: var(--green);
+    }
+
+    .boot-title {
+      font-size: clamp(2.5rem, 3vw, 4rem);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin: 0;
+      color: var(--green-strong);
+      text-shadow: 0 0 16px rgba(125, 249, 176, 0.7);
+    }
+
+    .boot-subtitle {
+      margin: 10px 0 18px 0;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: rgba(160, 255, 209, 0.8);
+      font-size: 0.8rem;
+    }
+
+    .boot-actions {
+      display: flex;
+      gap: 18px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .primary-btn, .abort-btn {
+      appearance: none;
+      border: 1px solid rgba(125, 249, 176, 0.9);
+      background: rgba(8, 21, 18, 0.8);
+      color: var(--green-strong);
+      padding: 14px 22px;
+      font-size: 0.8rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      cursor: pointer;
+      box-shadow: var(--shadow);
+      transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    }
+
+    .abort-btn {
+      border-color: rgba(255, 110, 124, 0.8);
+      color: #ffb2b7;
+      box-shadow: 0 0 12px rgba(255, 110, 124, 0.35);
+    }
+
+    .primary-btn:hover, .abort-btn:hover {
+      transform: translateY(-1px);
+    }
+
+    .boot-grid {
+      margin-top: 18px;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(150px, 1fr));
+      gap: 8px 12px;
+    }
+
+    .boot-grid span {
+      display: block;
+      border: 1px solid rgba(125, 249, 176, 0.25);
+      padding: 8px 10px;
+      font-size: 0.58rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(168, 255, 204, 0.82);
+    }
+
+    .hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    #abortBtn {
+      position: absolute;
+      right: 2.6vw;
+      top: 2.4vh;
+      z-index: 11;
+      pointer-events: auto;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="hudCanvas"></canvas>
+
+  <div id="hudOverlay">
+    <div class="hud-frame top-left-frame"></div>
+    <div class="hud-frame top-right-frame"></div>
+    <div class="hud-frame bottom-left-frame"></div>
+
+    <div id="leftTargetBox" class="target-box">
+      <div class="hud-badge top-left-badge">Target Feed</div>
+      <div class="hud-data">
+        <div class="row"><span>Vector</span><span id="vectorData">+00.00 / +00.00</span></div>
+        <div class="row"><span>Range</span><span id="rangeData">000.0 M</span></div>
+        <div class="row"><span>Signal</span><span id="signalData">SAT 88%</span></div>
+        <div class="signal-bar"></div>
+      </div>
+    </div>
+
+    <div id="rightTargetBox" class="target-box">
+      <div class="hud-badge top-right-badge">Diagnostics</div>
+      <div class="hud-data">
+        <div class="row"><span>Phase</span><span id="phaseData">0.41</span></div>
+        <div class="row"><span>Thermal</span><span id="thermalData">4.6C</span></div>
+        <div class="row"><span>Gamma</span><span id="gammaData">1.08</span></div>
+        <div class="row"><span>Drift</span><span id="driftData">00.4°</span></div>
+      </div>
+    </div>
+
+    <div id="mainCrosshair">
+      <div class="crosshair-inner"></div>
+    </div>
+
+    <div id="bottomTerminal">
+      <div id="terminalHeader">
+        <span>Node 014 // live log</span>
+        <div class="dot-row">
+          <span class="dot"></span>
+          <span class="dot"></span>
+          <span class="dot"></span>
+        </div>
+      </div>
+      <div id="terminalLog"></div>
+    </div>
+  </div>
+
+  <button id="abortBtn" class="abort-btn" type="button">Abort [ESC]</button>
+
+  <div id="bootScreen">
+    <div class="boot-panel">
+      <div class="boot-header">
+        <span>System // Access</span>
+        <span class="status-pill">Night Vision Active</span>
+      </div>
+
+      <h1 class="boot-title">Initialize Night Vision Stream</h1>
+      <p class="boot-subtitle">Permission required for live paranormal reconnaissance feed.</p>
+
+      <div class="boot-actions">
+        <button id="startBtn" class="primary-btn" type="button">Initialize Night Vision Stream</button>
+        <button id="bootAbortBtn" class="abort-btn" type="button">Abort [ESC]</button>
+      </div>
+
+      <div class="boot-grid">
+        <span>Key 1 // phosphor gain</span>
+        <span>Key 2 // thermal inversion</span>
+        <span>Key 3 / 8 // anomaly contour</span>
+        <span>Key 4 / 5 / 6 // piercing scan</span>
+        <span>Key 7 / 9 // sonar pulse</span>
+        <span>Key 0 // room map</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('hudCanvas');
+    const ctx = canvas.getContext('2d', { alpha: false });
+    const sourceCanvas = document.createElement('canvas');
+    const sourceCtx = sourceCanvas.getContext('2d', { willReadFrequently: true });
+
+    const video = document.createElement('video');
+    video.autoplay = true;
+    video.playsInline = true;
+    video.muted = true;
+
+    const bootScreen = document.getElementById('bootScreen');
+    const startBtn = document.getElementById('startBtn');
+    const abortBtn = document.getElementById('abortBtn');
+    const bootAbortBtn = document.getElementById('bootAbortBtn');
+    const terminalLog = document.getElementById('terminalLog');
+
+    let stream = null;
+    let activeMode = '1';
+    const logMessages = [];
+    let requestAnimationFrameLoopStarted = false;
+
+    const modeNames = {
+      '1': 'PHOSPHOR GAIN',
+      '2': 'THERMAL INVERSION',
+      '3': 'ANOMALY CONTOUR',
+      '4': 'PIERCING SCAN',
+      '5': 'PIERCING SCAN',
+      '6': 'PIERCING SCAN',
+      '7': 'QUANTUM ECHO',
+      '8': 'ANOMALY CONTOUR',
+      '9': 'QUANTUM ECHO',
+      '0': 'FULL ROOM SCAN'
+    };
+
+    function resizeCanvas() {
+      canvas.width = window.innerWidth * window.devicePixelRatio;
+      canvas.height = window.innerHeight * window.devicePixelRatio;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    }
+
+    function logEntry(text) {
+      const entry = `${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })} // ${text}`;
+      logMessages.push(entry);
+      if (logMessages.length > 11) logMessages.shift();
+      terminalLog.innerHTML = logMessages.map((line) => `<div class="log-line">${line}</div>`).join('');
+    }
+
+    function updateHUDStats() {
+      const phase = (Math.sin(Date.now() * 0.0013) * 0.75 + 0.5).toFixed(2);
+      const range = Math.floor(Math.random() * 180 + 120);
+      const signal = Math.floor(Math.random() * 12 + 86);
+      const thermal = (Math.random() * 18 + 3.2).toFixed(1);
+      const gamma = (Math.random() * 0.9 + 0.9).toFixed(2);
+      const drift = (Math.random() * 5 + 0.2).toFixed(1);
+      const vectorX = (Math.random() * 1.8 - 0.9).toFixed(2);
+      const vectorY = (Math.random() * 1.8 - 0.9).toFixed(2);
+
+      document.getElementById('vectorData').textContent = `+${vectorX} / +${vectorY}`;
+      document.getElementById('rangeData').textContent = `${String(range).padStart(3, '0')}.0 M`;
+      document.getElementById('signalData').textContent = `SAT ${signal}%`;
+      document.getElementById('phaseData').textContent = phase;
+      document.getElementById('thermalData').textContent = `${thermal}C`;
+      document.getElementById('gammaData').textContent = gamma;
+      document.getElementById('driftData').textContent = `${drift}°`;
+    }
+
+    function applyPhosphorGain(data) {
+      const len = data.length;
+      for (let i = 0; i < len; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const lum = (r * 0.299 + g * 0.587 + b * 0.114) / 255;
+        const gain = 1.8 + lum * 1.2;
+        data[i] = Math.min(255, r * gain * 0.72 + lum * 65);
+        data[i + 1] = Math.min(255, g * gain + lum * 100);
+        data[i + 2] = Math.min(255, b * gain * 0.85 + lum * 24);
+      }
+    }
+
+    function applyThermalInversion(data) {
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const lum = (r + g + b) / 3;
+        const blue = Math.max(0, 255 - (lum + b * 0.2));
+        const amber = Math.max(0, lum * 1.8);
+        const red = Math.max(0, 255 - r * 0.6);
+        data[i] = Math.min(255, red * 0.8 + amber * 0.6);
+        data[i + 1] = Math.min(255, Math.max(0, 150 - lum * 0.7 + blue * 0.18));
+        data[i + 2] = Math.min(255, blue + amber * 0.9);
+      }
+    }
+
+    function applyGhostContour(data, width, height) {
+      const temp = new Uint8ClampedArray(data);
+      for (let y = 1; y < height - 1; y++) {
+        for (let x = 1; x < width - 1; x++) {
+          const idx = (y * width + x) * 4;
+          const lum = (temp[idx] + temp[idx + 1] + temp[idx + 2]) / 3;
+          const left = (temp[idx - 4] + temp[idx - 3] + temp[idx - 2]) / 3;
+          const right = (temp[idx + 4] + temp[idx + 5] + temp[idx + 6]) / 3;
+          const diff = Math.abs(lum - left) + Math.abs(lum - right);
+          const edge = diff > 30 ? 255 : 0;
+          const intensity = lum * 0.6 + edge * 0.8;
+          data[idx] = 20 + edge * 0.35 + intensity * 0.46;
+          data[idx + 1] = 20 + Math.min(255, edge * 0.65 + intensity * 0.9);
+          data[idx + 2] = 18 + Math.min(255, edge * 0.8 + intensity * 0.55);
+        }
+      }
+    }
+
+    function applyPiercingScan(data, width, height, t) {
+      const midY = height * 0.5 + Math.sin(t * 0.002) * 80;
+      const midX = width * 0.5 + Math.cos(t * 0.0018) * 100;
+
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const lum = (r + g + b) / 3;
+        const x = (i / 4) % width;
+        const y = Math.floor((i / 4) / width);
+        const dist = Math.hypot(x - midX, y - midY);
+        const wave = Math.sin(dist * 0.16 - t * 0.02) * 50;
+        const glow = Math.max(0, 60 - dist * 0.18 + wave);
+
+        data[i] = Math.min(255, r * 0.90 + glow * 0.25 + 18);
+        data[i + 1] = Math.min(255, g * 0.9 + glow * 0.55 + 30);
+        data[i + 2] = Math.min(255, b * 1.05 + glow * 0.75 + 34);
+      }
+    }
+
+    function applyQuantumEcho(data, width, height, t) {
+      const cx = width * 0.5;
+      const cy = height * 0.5;
+      for (let i = 0; i < data.length; i += 4) {
+        const x = (i / 4) % width;
+        const y = Math.floor((i / 4) / width);
+        const d = Math.hypot(x - cx, y - cy);
+        const ring = Math.sin(d * 0.12 - t * 0.03) > 0.72 ? 1 : 0;
+        const glow = Math.max(0, 36 - Math.abs(d - (t * 0.27 % 320)) * 0.25);
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+
+        data[i] = Math.min(255, r * 0.8 + glow * 0.8 + ring * 60);
+        data[i + 1] = Math.min(255, g * 0.94 + glow * 0.75 + ring * 32);
+        data[i + 2] = Math.min(255, b * 1.05 + glow * 1.1 + ring * 70);
+      }
+    }
+
+    function drawRadarOverlay(width, height, t) {
+      const centerX = width * 0.5;
+      const centerY = height * 0.5;
+      const sweepAngle = (t * 0.045) % (Math.PI * 2);
+
+      ctx.save();
+      ctx.translate(centerX, centerY);
+      ctx.strokeStyle = 'rgba(125, 249, 176, 0.34)';
+      ctx.lineWidth = 1;
+
+      for (let i = 0; i < 14; i++) {
+        const radius = (i / 14) * Math.min(width, height) * 0.48;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(Math.cos(sweepAngle) * Math.min(width, height) * 0.5, Math.sin(sweepAngle) * Math.min(width, height) * 0.5);
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    function drawRoomGrid(width, height, t) {
+      const vpx = width * 0.5;
+      const vpy = height * 0.5;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(127, 228, 255, 0.34)';
+      ctx.lineWidth = 1;
+
+      for (let i = -10; i <= 10; i++) {
+        const x = vpx + i * 26 + Math.sin(t * 0.005 + i) * 10;
+        const y = vpy + i * 26 + Math.cos(t * 0.004 + i) * 10;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, height);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(width, y);
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    }
+
+    function renderFrame() {
+      const t = performance.now();
+      if (video.readyState >= 2) {
+        const w = 640;
+        const h = 480;
+        sourceCanvas.width = w;
+        sourceCanvas.height = h;
+        sourceCtx.drawImage(video, 0, 0, w, h);
+
+        const imageData = sourceCtx.getImageData(0, 0, w, h);
+        const { data } = imageData;
+
+        switch (activeMode) {
+          case '1':
+            applyPhosphorGain(data);
+            break;
+          case '2':
+            applyThermalInversion(data);
+            break;
+          case '3':
+          case '8':
+            applyGhostContour(data, w, h);
+            break;
+          case '4':
+          case '5':
+          case '6':
+            applyPiercingScan(data, w, h, t);
+            break;
+          case '7':
+          case '9':
+            applyQuantumEcho(data, w, h, t);
+            break;
+          case '0':
+            applyPhosphorGain(data);
+            break;
+          default:
+            applyPhosphorGain(data);
+        }
+
+        sourceCtx.putImageData(imageData, 0, 0);
+
+        const scale = Math.min(window.innerWidth / w, window.innerHeight / h);
+        const drawW = w * scale;
+        const drawH = h * scale;
+        const dx = (window.innerWidth - drawW) / 2;
+        const dy = (window.innerHeight - drawH) / 2;
+
+        ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+        ctx.fillStyle = '#02150f';
+        ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+        ctx.drawImage(sourceCanvas, dx, dy, drawW, drawH);
+
+        const overlayOpacity = activeMode === '0' ? 0.75 : 0.5;
+        ctx.fillStyle = `rgba(2, 9, 8, ${overlayOpacity})`;
+        ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+
+        switch (activeMode) {
+          case '1':
+            ctx.fillStyle = 'rgba(125, 249, 176, 0.08)';
+            ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+            break;
+          case '2':
+            ctx.fillStyle = 'rgba(120, 80, 220, 0.08)';
+            ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+            break;
+          case '3':
+          case '8':
+            ctx.strokeStyle = 'rgba(255, 114, 210, 0.5)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < 9; i++) {
+              const y = (i / 8) * window.innerHeight;
+              ctx.beginPath();
+              ctx.moveTo(0, y);
+              ctx.lineTo(window.innerWidth, y);
+              ctx.stroke();
+            }
+            break;
+          case '4':
+          case '5':
+          case '6':
+            ctx.fillStyle = 'rgba(127, 228, 255, 0.06)';
+            ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+            break;
+          case '7':
+          case '9':
+            drawRadarOverlay(window.innerWidth, window.innerHeight, t);
+            break;
+          case '0':
+            drawRoomGrid(window.innerWidth, window.innerHeight, t);
+            break;
+        }
+      }
+
+      drawHUDGrid();
+      updateHUDStats();
+      requestAnimationFrame(renderFrame);
+    }
+
+    function drawHUDGrid() {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+
+      ctx.save();
+      ctx.strokeStyle = 'rgba(125, 249, 176, 0.2)';
+      ctx.lineWidth = 1;
+      const spacing = Math.min(w, h) * 0.06;
+      for (let x = 0; x < w; x += spacing) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.stroke();
+      }
+      for (let y = 0; y < h; y += spacing) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    async function startStream() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        logEntry('WEBCAM ACCESS UNAVAILABLE');
+        return;
+      }
+
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: 'user',
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        });
+
+        video.srcObject = stream;
+        await video.play();
+        logEntry('CAMERA LINK STABLE');
+        logEntry(`MODE ${activeMode} // ${modeNames[activeMode]}`);
+        bootScreen.classList.add('hidden');
+
+        if (document.documentElement.requestFullscreen) {
+          try {
+            await document.documentElement.requestFullscreen();
+          } catch (err) {
+            console.warn('Fullscreen request failed:', err);
+          }
+        }
+
+        if (!requestAnimationFrameLoopStarted) {
+          requestAnimationFrame(renderFrame);
+          requestAnimationFrameLoopStarted = true;
+        }
+      } catch (err) {
+        console.error(err);
+        logEntry('CAMERA ACCESS DENIED');
+        alert('Unable to access the webcam. Please allow camera access and try again.');
+      }
+    }
+
+    function stopStream() {
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+        stream = null;
+      }
+
+      if (video.srcObject) {
+        video.srcObject = null;
+      }
+
+      bootScreen.classList.remove('hidden');
+      logEntry('SYSTEM HALTED // STREAM ABORTED');
+
+      if (document.fullscreenElement) {
+        document.exitFullscreen?.();
+      }
+    }
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key >= '0' && event.key <= '9') {
+        activeMode = event.key;
+        logEntry(`MODE ${activeMode} // ${modeNames[activeMode]}`);
+        return;
+      }
+
+      if (event.key === 'Escape') {
+        stopStream();
+      }
+    });
+
+    startBtn.addEventListener('click', startStream);
+    bootAbortBtn.addEventListener('click', stopStream);
+    abortBtn.addEventListener('click', stopStream);
+    window.addEventListener('resize', resizeCanvas);
+
+    resizeCanvas();
+    logEntry('BOOT SEQUENCE INITIALIZED');
+    logEntry('WAITING FOR USER AUTHORIZATION');
+  </script>
+</body>
+</html>
