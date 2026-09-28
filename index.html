@@ -40,14 +40,41 @@
       background: linear-gradient(rgba(5, 20, 15, 0.92), rgba(2, 11, 10, 0.94)), radial-gradient(circle at center, rgba(25, 76, 52, 0.2), #000 58%);
     }
 
+    #videoContainer {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #02120d;
+      overflow: hidden;
+    }
+
+    #video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
     #hudCanvas {
       position: absolute;
       inset: 0;
       width: 100%;
       height: 100%;
       display: block;
-      background: #02120d;
-      filter: saturate(1.25) contrast(1.18) brightness(0.82);
+      pointer-events: none;
+    }
+
+    #filterCanvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      pointer-events: none;
     }
 
     #hudOverlay {
@@ -55,6 +82,7 @@
       inset: 0;
       pointer-events: none;
       background: linear-gradient(to right, rgba(3, 18, 21, 0.25), transparent 12%, transparent 88%, rgba(3, 18, 21, 0.25));
+      z-index: 5;
     }
 
     #hudOverlay::before,
@@ -112,6 +140,7 @@
       border: 1px solid rgba(125, 249, 176, 0.72);
       border-radius: 50%;
       box-shadow: inset 0 0 18px rgba(125, 249, 176, 0.2), 0 0 18px rgba(125, 249, 176, 0.18);
+      z-index: 5;
     }
 
     #mainCrosshair::before,
@@ -201,6 +230,7 @@
       border: 1px solid rgba(125, 249, 176, 0.6);
       background: rgba(1, 15, 11, 0.24);
       box-shadow: inset 0 0 14px rgba(125, 249, 176, 0.12);
+      z-index: 5;
     }
 
     #leftTargetBox {
@@ -223,6 +253,7 @@
       background: rgba(2, 16, 12, 0.4);
       overflow: hidden;
       box-shadow: inset 0 0 18px rgba(125, 249, 176, 0.14);
+      z-index: 5;
     }
 
     #terminalHeader {
@@ -328,7 +359,7 @@
       justify-content: center;
       background: rgba(1, 10, 8, 0.76);
       backdrop-filter: blur(3px);
-      z-index: 10;
+      z-index: 20;
       transition: opacity 0.35s ease;
     }
 
@@ -425,12 +456,17 @@
       position: absolute;
       right: 2.6vw;
       top: 2.4vh;
-      z-index: 11;
+      z-index: 15;
       pointer-events: auto;
     }
   </style>
 </head>
 <body>
+  <div id="videoContainer">
+    <video id="video" autoplay muted playsinline></video>
+  </div>
+
+  <canvas id="filterCanvas"></canvas>
   <canvas id="hudCanvas"></canvas>
 
   <div id="hudOverlay">
@@ -504,15 +540,11 @@
   </div>
 
   <script>
-    const canvas = document.getElementById('hudCanvas');
-    const ctx = canvas.getContext('2d', { alpha: false });
-    const sourceCanvas = document.createElement('canvas');
-    const sourceCtx = sourceCanvas.getContext('2d', { willReadFrequently: true });
-
-    const video = document.createElement('video');
-    video.autoplay = true;
-    video.playsInline = true;
-    video.muted = true;
+    const video = document.getElementById('video');
+    const filterCanvas = document.getElementById('filterCanvas');
+    const filterCtx = filterCanvas.getContext('2d', { willReadFrequently: true });
+    const hudCanvas = document.getElementById('hudCanvas');
+    const hudCtx = hudCanvas.getContext('2d', { alpha: true });
 
     const bootScreen = document.getElementById('bootScreen');
     const startBtn = document.getElementById('startBtn');
@@ -538,11 +570,11 @@
       '0': 'FULL ROOM SCAN'
     };
 
-    function resizeCanvas() {
-      canvas.width = window.innerWidth * window.devicePixelRatio;
-      canvas.height = window.innerHeight * window.devicePixelRatio;
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    function resizeCanvases() {
+      filterCanvas.width = window.innerWidth;
+      filterCanvas.height = window.innerHeight;
+      hudCanvas.width = window.innerWidth;
+      hudCanvas.height = window.innerHeight;
     }
 
     function logEntry(text) {
@@ -663,60 +695,59 @@
       const centerY = height * 0.5;
       const sweepAngle = (t * 0.045) % (Math.PI * 2);
 
-      ctx.save();
-      ctx.translate(centerX, centerY);
-      ctx.strokeStyle = 'rgba(125, 249, 176, 0.34)';
-      ctx.lineWidth = 1;
+      hudCtx.save();
+      hudCtx.translate(centerX, centerY);
+      hudCtx.strokeStyle = 'rgba(125, 249, 176, 0.34)';
+      hudCtx.lineWidth = 1;
 
       for (let i = 0; i < 14; i++) {
         const radius = (i / 14) * Math.min(width, height) * 0.48;
-        ctx.beginPath();
-        ctx.arc(0, 0, radius, 0, Math.PI * 2);
-        ctx.stroke();
+        hudCtx.beginPath();
+        hudCtx.arc(0, 0, radius, 0, Math.PI * 2);
+        hudCtx.stroke();
       }
 
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(Math.cos(sweepAngle) * Math.min(width, height) * 0.5, Math.sin(sweepAngle) * Math.min(width, height) * 0.5);
-      ctx.stroke();
+      hudCtx.beginPath();
+      hudCtx.moveTo(0, 0);
+      hudCtx.lineTo(Math.cos(sweepAngle) * Math.min(width, height) * 0.5, Math.sin(sweepAngle) * Math.min(width, height) * 0.5);
+      hudCtx.stroke();
 
-      ctx.restore();
+      hudCtx.restore();
     }
 
     function drawRoomGrid(width, height, t) {
       const vpx = width * 0.5;
       const vpy = height * 0.5;
-      ctx.save();
-      ctx.strokeStyle = 'rgba(127, 228, 255, 0.34)';
-      ctx.lineWidth = 1;
+      hudCtx.save();
+      hudCtx.strokeStyle = 'rgba(127, 228, 255, 0.34)';
+      hudCtx.lineWidth = 1;
 
       for (let i = -10; i <= 10; i++) {
         const x = vpx + i * 26 + Math.sin(t * 0.005 + i) * 10;
         const y = vpy + i * 26 + Math.cos(t * 0.004 + i) * 10;
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, height);
-        ctx.stroke();
+        hudCtx.beginPath();
+        hudCtx.moveTo(x, 0);
+        hudCtx.lineTo(x, height);
+        hudCtx.stroke();
 
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(width, y);
-        ctx.stroke();
+        hudCtx.beginPath();
+        hudCtx.moveTo(0, y);
+        hudCtx.lineTo(width, y);
+        hudCtx.stroke();
       }
 
-      ctx.restore();
+      hudCtx.restore();
     }
 
     function renderFrame() {
       const t = performance.now();
       if (video.readyState >= 2) {
-        const w = 640;
-        const h = 480;
-        sourceCanvas.width = w;
-        sourceCanvas.height = h;
-        sourceCtx.drawImage(video, 0, 0, w, h);
+        const w = filterCanvas.width;
+        const h = filterCanvas.height;
 
-        const imageData = sourceCtx.getImageData(0, 0, w, h);
+        filterCtx.drawImage(video, 0, 0, w, h);
+
+        const imageData = filterCtx.getImageData(0, 0, w, h);
         const { data } = imageData;
 
         switch (activeMode) {
@@ -746,56 +777,49 @@
             applyPhosphorGain(data);
         }
 
-        sourceCtx.putImageData(imageData, 0, 0);
+        filterCtx.putImageData(imageData, 0, 0);
 
-        const scale = Math.min(window.innerWidth / w, window.innerHeight / h);
-        const drawW = w * scale;
-        const drawH = h * scale;
-        const dx = (window.innerWidth - drawW) / 2;
-        const dy = (window.innerHeight - drawH) / 2;
-
-        ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
-        ctx.fillStyle = '#02150f';
-        ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
-        ctx.drawImage(sourceCanvas, dx, dy, drawW, drawH);
+        const videoCanvas = filterCanvas;
+        video.style.opacity = '0';
+        filterCanvas.style.opacity = '1';
 
         const overlayOpacity = activeMode === '0' ? 0.75 : 0.5;
-        ctx.fillStyle = `rgba(2, 9, 8, ${overlayOpacity})`;
-        ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+        filterCtx.fillStyle = `rgba(2, 9, 8, ${overlayOpacity})`;
+        filterCtx.fillRect(0, 0, w, h);
 
         switch (activeMode) {
           case '1':
-            ctx.fillStyle = 'rgba(125, 249, 176, 0.08)';
-            ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+            filterCtx.fillStyle = 'rgba(125, 249, 176, 0.08)';
+            filterCtx.fillRect(0, 0, w, h);
             break;
           case '2':
-            ctx.fillStyle = 'rgba(120, 80, 220, 0.08)';
-            ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+            filterCtx.fillStyle = 'rgba(120, 80, 220, 0.08)';
+            filterCtx.fillRect(0, 0, w, h);
             break;
           case '3':
           case '8':
-            ctx.strokeStyle = 'rgba(255, 114, 210, 0.5)';
-            ctx.lineWidth = 1;
+            filterCtx.strokeStyle = 'rgba(255, 114, 210, 0.5)';
+            filterCtx.lineWidth = 1;
             for (let i = 0; i < 9; i++) {
-              const y = (i / 8) * window.innerHeight;
-              ctx.beginPath();
-              ctx.moveTo(0, y);
-              ctx.lineTo(window.innerWidth, y);
-              ctx.stroke();
+              const y = (i / 8) * h;
+              filterCtx.beginPath();
+              filterCtx.moveTo(0, y);
+              filterCtx.lineTo(w, y);
+              filterCtx.stroke();
             }
             break;
           case '4':
           case '5':
           case '6':
-            ctx.fillStyle = 'rgba(127, 228, 255, 0.06)';
-            ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+            filterCtx.fillStyle = 'rgba(127, 228, 255, 0.06)';
+            filterCtx.fillRect(0, 0, w, h);
             break;
           case '7':
           case '9':
-            drawRadarOverlay(window.innerWidth, window.innerHeight, t);
+            drawRadarOverlay(w, h, t);
             break;
           case '0':
-            drawRoomGrid(window.innerWidth, window.innerHeight, t);
+            drawRoomGrid(w, h, t);
             break;
         }
       }
@@ -809,23 +833,23 @@
       const w = window.innerWidth;
       const h = window.innerHeight;
 
-      ctx.save();
-      ctx.strokeStyle = 'rgba(125, 249, 176, 0.2)';
-      ctx.lineWidth = 1;
+      hudCtx.save();
+      hudCtx.strokeStyle = 'rgba(125, 249, 176, 0.2)';
+      hudCtx.lineWidth = 1;
       const spacing = Math.min(w, h) * 0.06;
       for (let x = 0; x < w; x += spacing) {
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, h);
-        ctx.stroke();
+        hudCtx.beginPath();
+        hudCtx.moveTo(x, 0);
+        hudCtx.lineTo(x, h);
+        hudCtx.stroke();
       }
       for (let y = 0; y < h; y += spacing) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(w, y);
-        ctx.stroke();
+        hudCtx.beginPath();
+        hudCtx.moveTo(0, y);
+        hudCtx.lineTo(w, y);
+        hudCtx.stroke();
       }
-      ctx.restore();
+      hudCtx.restore();
     }
 
     async function startStream() {
@@ -902,9 +926,9 @@
     startBtn.addEventListener('click', startStream);
     bootAbortBtn.addEventListener('click', stopStream);
     abortBtn.addEventListener('click', stopStream);
-    window.addEventListener('resize', resizeCanvas);
+    window.addEventListener('resize', resizeCanvases);
 
-    resizeCanvas();
+    resizeCanvases();
     logEntry('BOOT SEQUENCE INITIALIZED');
     logEntry('WAITING FOR USER AUTHORIZATION');
   </script>
